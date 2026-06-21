@@ -7,7 +7,7 @@ import (
 func Test_Init(t *testing.T) {
 	Init(
 		Config{
-			Format:     "json",
+			Console:    "json",
 			Level:      "debug",
 			LogPath:    "./log/test.log",
 			MaxSize:    100,
@@ -25,7 +25,7 @@ func Test_Init(t *testing.T) {
 func Test_Init2(t *testing.T) {
 	Init(
 		Config{
-			Format:     "console",
+			Console:    "console",
 			Level:      "debug",
 			LogPath:    "",
 			MaxSize:    100,

@@ -13,7 +13,7 @@ import (
 // Config 日志配置
 type Config struct {
 	Level      string // debug, info, warn, error
-	Format     string // json, console
+	Console    string // json, console
 	LogPath    string // 日志文件路径，空表示不输出到文件
 	MaxSize    int    // 单个日志文件最大大小（MB），默认100
 	MaxBackups int    // 保留的旧日志文件最大数量，默认7
@@ -30,8 +30,8 @@ func Init(cfg Config) {
 	if cfg.Level == "" {
 		cfg.Level = "info"
 	}
-	if cfg.Format == "" {
-		cfg.Format = "console"
+	if cfg.Console == "" {
+		cfg.Console = "console"
 	}
 	if cfg.MaxSize == 0 {
 		cfg.MaxSize = 100
@@ -81,7 +81,7 @@ func Init(cfg Config) {
 	ws := zapcore.NewMultiWriteSyncer(writers...)
 
 	var core zapcore.Core
-	if cfg.Format == "json" {
+	if cfg.Console == "json" {
 		core = zapcore.NewCore(zapcore.NewJSONEncoder(config), ws, levelCtrl)
 	} else {
 		core = zapcore.NewCore(zapcore.NewConsoleEncoder(config), ws, levelCtrl)
