@@ -4,34 +4,18 @@ import (
 	`testing`
 )
 
-func Test_Init(t *testing.T) {
-	Init(
-		Config{
-			Console:    "json",
-			Level:      "debug",
-			LogPath:    "./log/test.log",
-			MaxSize:    100,
-			MaxBackups: 7,
-			MaxAge:     30,
-		})
-	Info("value：%d", 1234)
-	Debug("value：%d", 1234)
-	Warn("value：%d", 1234)
-	Error("value：%d", 1234)
-	Fatal("value：%d", 1234)
-	Panic("value：%d", 1234)
-}
+func TestInitLog(t *testing.T) {
 
-func Test_Init2(t *testing.T) {
-	Init(
-		Config{
-			Console:    "console",
-			Level:      "debug",
-			LogPath:    "",
-			MaxSize:    100,
-			MaxBackups: 7,
-			MaxAge:     30,
-		})
-	Info("value：%d", 1234)
-	Debug("value：%d", 1234)
+	InitLog("test.log", Conf{
+		LogWay:     "console",
+		EncoderWay: "json",
+		LogLevel:   "debug",
+		LogPath:    "./logs/",
+		MaxDays:    7,
+		MaxSize:    100,
+	})
+	Info("hello world")
+	Debug("hello world")
+	Error("hello world")
+	Warn("hello world")
 }

@@ -2,7 +2,9 @@ package log
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/natefinch/lumberjack"
@@ -10,155 +12,114 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Config 日志配置
-type Config struct {
-	Level      string // debug, info, warn, error
-	Console    string // json, console
-	LogPath    string // 日志文件路径，空表示不输出到文件
-	MaxSize    int    // 单个日志文件最大大小（MB），默认100
-	MaxBackups int    // 保留的旧日志文件最大数量，默认7
-	MaxAge     int    // 保留旧日志文件的最大天数，默认30
+type Conf struct {
+	LogWay     string //console or 日志文件,默认为日志文件
+	EncoderWay string //json or console，默认为console
+	LogLevel   string
+	LogPath    string //文件日志路径，默认需要为./
+	MaxDays    int
+	MaxSize    int //单位M
+	MaxBackups int //最多保留多少个文件
 }
 
-var (
-	logger    *zap.Logger
-	levelCtrl zap.AtomicLevel
-)
+var logger *zap.Logger
+var levelCtrl zap.AtomicLevel
+var infoWriter io.Writer = os.Stdout
 
-// Init 初始化全局 logger
-func Init(cfg Config) {
-	if cfg.Level == "" {
-		cfg.Level = "info"
-	}
-	if cfg.Console == "" {
-		cfg.Console = "console"
-	}
-	if cfg.MaxSize == 0 {
-		cfg.MaxSize = 100
-	}
-	if cfg.MaxBackups == 0 {
-		cfg.MaxBackups = 7
-	}
-	if cfg.MaxAge == 0 {
-		cfg.MaxAge = 30
-	}
-
+func InitLog(logFile string, conf Conf) {
 	config := zapcore.EncoderConfig{
-		MessageKey: "msg",
-		LevelKey:   "level",
-		TimeKey:    "ts",
-		CallerKey:  "file",
+		MessageKey: "msg",   //结构化（json）输出：msg的key
+		LevelKey:   "level", //结构化（json）输出：日志级别的key（INFO，WARN，ERROR等）
+		TimeKey:    "ts",    //结构化（json）输出：时间的key（INFO，WARN，ERROR等）
+		CallerKey:  "file",  //结构化（json）输出：打印日志的文件对应的Key
 		EncodeLevel: func(level zapcore.Level, encoder zapcore.PrimitiveArrayEncoder) {
-			encoder.AppendString(level.CapitalString())
+			encoder.AppendString(fmt.Sprintf("[%s]", level.CapitalString()))
 		},
 		EncodeCaller: func(caller zapcore.EntryCaller, encoder zapcore.PrimitiveArrayEncoder) {
-			encoder.AppendString(caller.TrimmedPath())
+			idx := strings.LastIndexByte(caller.File, '/')
+			if idx == -1 {
+				encoder.AppendString(fmt.Sprintf("[%s]", caller.FullPath()))
+				return
+			}
+			encoder.AppendString(fmt.Sprintf("[%s:%d]", caller.File[idx+1:], caller.Line))
 		},
 		EncodeTime: func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-			enc.AppendString(t.Format("2006-01-02T15:04:05.000Z"))
-		},
+			enc.AppendString(t.Format("2006-01-02T15:04:05.999Z")) // 日志采集需要精确到毫秒
+		}, //输出的时间格式
 		EncodeDuration: func(d time.Duration, enc zapcore.PrimitiveArrayEncoder) {
 			enc.AppendInt64(int64(d) / 1000000)
 		},
 	}
-
-	levelCtrl = zap.NewAtomicLevel()
-
-	var writers []zapcore.WriteSyncer
-	if cfg.LogPath == "" {
-		writers = append(writers, zapcore.AddSync(os.Stderr))
-	} else {
-		ljWriter := &lumberjack.Logger{
-			Filename:   cfg.LogPath,
-			MaxSize:    cfg.MaxSize,
-			MaxBackups: cfg.MaxBackups,
-			MaxAge:     cfg.MaxAge,
-			LocalTime:  true,
+	// 获取io.Writer的实现
+	if conf.LogWay == "" {
+		infoWriter = &lumberjack.Logger{
+			Filename:   fmt.Sprintf("%s/%s", conf.LogPath, logFile),
+			MaxSize:    conf.MaxSize,    //最大M数，超过则切割
+			MaxBackups: conf.MaxBackups, //最大文件保留数，超过就删除最老的日志文件
+			MaxAge:     conf.MaxDays,    //保存30天
+			Compress:   false,           //是否压缩
 		}
-		writers = append(writers, zapcore.AddSync(ljWriter))
 	}
-
-	ws := zapcore.NewMultiWriteSyncer(writers...)
-
+	levelCtrl = zap.NewAtomicLevel()
+	ReloadLogLevel(conf.LogLevel)
+	// 实现多个输出
 	var core zapcore.Core
-	if cfg.Console == "json" {
-		core = zapcore.NewCore(zapcore.NewJSONEncoder(config), ws, levelCtrl)
+	if conf.EncoderWay == "" || conf.EncoderWay == "console" {
+		core = zapcore.NewTee(
+			zapcore.NewCore(zapcore.NewConsoleEncoder(config), zapcore.AddSync(infoWriter), levelCtrl), //将info及以下写入logPath，NewConsoleEncoder 是非结构化输出
+		)
 	} else {
-		core = zapcore.NewCore(zapcore.NewConsoleEncoder(config), ws, levelCtrl)
+		core = zapcore.NewTee(
+			zapcore.NewCore(zapcore.NewJSONEncoder(config), zapcore.AddSync(infoWriter), levelCtrl),
+		)
 	}
-
+	//logger := zap.New(core, zap.AddCaller(), zap.AddStacktrace(zap.WarnLevel), zap.AddCallerSkip(1))
 	logger = zap.New(core, zap.AddCaller(), zap.AddStacktrace(zap.WarnLevel), zap.AddCallerSkip(1))
-
-	SetLevel(cfg.Level)
 }
 
-// SetLevel 动态修改日志级别
-func SetLevel(level string) {
-	levelCtrl.SetLevel(ParseLevel(level))
+func ReloadLogLevel(level string) {
+	levelCtrl.SetLevel(ParseLogLevel(level))
 }
 
-// GetLevel 获取当前日志级别
-func GetLevel() zapcore.Level {
+func GetLogLevel() zapcore.Level {
 	return levelCtrl.Level()
 }
 
-// ParseLevel 解析日志级别字符串
-func ParseLevel(level string) zapcore.Level {
+func ParseLogLevel(level string) zapcore.Level {
 	switch level {
-	case "debug":
-		return zap.DebugLevel
-	case "info":
-		return zap.InfoLevel
-	case "warn":
-		return zap.WarnLevel
 	case "error":
 		return zap.ErrorLevel
-	default:
+	case "warn":
+		return zap.WarnLevel
+	case "info":
 		return zap.InfoLevel
+	case "debug":
+		return zap.DebugLevel
+	default:
+		return zap.DPanicLevel
 	}
 }
 
-// GetLogInst 获取底层 zap.Logger 实例
+func GetLogWriter() io.Writer {
+	return infoWriter
+}
+
 func GetLogInst() *zap.Logger {
 	return logger
 }
 
-// Sync 刷新日志缓冲区
-func Sync() error {
-	return logger.Sync()
+func Error(format string, v ...interface{}) {
+	logger.Sugar().Errorf(format, v...)
 }
 
-// ----- 对外公开 API -----
-
-func Debug(format string, v ...any) {
-	logger.Sugar().Debugf(format, v...)
-}
-
-func Info(format string, v ...any) {
-	logger.Sugar().Infof(format, v...)
-}
-
-func Warn(format string, v ...any) {
+func Warn(format string, v ...interface{}) {
 	logger.Sugar().Warnf(format, v...)
 }
 
-func Error(format string, v ...any) {
-	logger.Sugar().Errorf(format, v...)
+func Info(format string, v ...interface{}) {
+	logger.Sugar().Infof(format, v...)
 }
 
-func Fatal(format string, v ...any) {
-	logger.Sugar().Errorf(format, v...)
-	_ = logger.Sync()
-	os.Exit(1)
-}
-
-func Panic(format string, v ...any) {
-	s := fmt.Sprintf(format, v...)
-	logger.Sugar().Errorf(s)
-	_ = logger.Sync()
-	panic(s)
-}
-
-func With(args ...any) *zap.SugaredLogger {
-	return logger.Sugar().With(args...)
+func Debug(format string, v ...interface{}) {
+	logger.Sugar().Debugf(format, v...)
 }
