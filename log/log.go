@@ -18,8 +18,9 @@ type Conf struct {
 	LogLevel   string
 	LogPath    string //文件日志路径，默认需要为./
 	MaxDays    int
-	MaxSize    int //单位M
-	MaxBackups int //最多保留多少个文件
+	MaxSize    int  //单位M
+	MaxBackups int  //最多保留多少个文件
+	Compress   bool //是否将轮转后的历史日志压缩为gzip，默认不压缩
 }
 
 var logger *zap.Logger
@@ -57,7 +58,7 @@ func InitLog(logFile string, conf Conf) {
 			MaxSize:    conf.MaxSize,    //最大M数，超过则切割
 			MaxBackups: conf.MaxBackups, //最大文件保留数，超过就删除最老的日志文件
 			MaxAge:     conf.MaxDays,    //保存30天
-			Compress:   false,           //是否压缩
+			Compress:   conf.Compress,   //是否压缩轮转后的历史日志
 		}
 	}
 	levelCtrl = zap.NewAtomicLevel()
